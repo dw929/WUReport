@@ -27,7 +27,7 @@ fi
 echo "[1/7] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends php-cli php-sqlite3 sqlite3 curl ca-certificates
+apt-get install -y --no-install-recommends php-cli php-sqlite3 sqlite3 curl ca-certificates rsync
 
 echo "[2/7] Creating service account..."
 if ! getent group "${APP_GROUP}" >/dev/null; then
