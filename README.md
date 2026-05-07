@@ -86,3 +86,19 @@ Default generated in `scripts/init_db.php`:
 - `demo-client` : `change-me-demo-key`
 
 Replace this key before production use.
+
+## Update from main repo
+Use the helper script to fast-forward your current branch to the latest `origin/main`:
+
+```bash
+./scripts/update_from_main.sh
+```
+
+Optional overrides:
+- `REMOTE_NAME` (default: `origin`)
+- `MAIN_BRANCH` (default: `main`)
+
+Example:
+```bash
+REMOTE_NAME=upstream MAIN_BRANCH=main ./scripts/update_from_main.sh
+```
