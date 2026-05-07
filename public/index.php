@@ -7,29 +7,52 @@ require_once __DIR__ . '/../includes/db.php';
 $pdo = db();
 ensure_endpoints_trmm_columns($pdo);
 $selectedEndpointId = filter_input(INPUT_GET, 'endpoint', FILTER_VALIDATE_INT);
+$selectedClient = trim((string)($_GET['client'] ?? ''));
+$selectedSite = trim((string)($_GET['site'] ?? ''));
 
-$totals = [
-    'total' => (int)$pdo->query('SELECT COUNT(*) FROM endpoints')->fetchColumn(),
-    'compliant' => (int)$pdo->query("SELECT COUNT(*) FROM endpoints WHERE compliance = 'compliant'")->fetchColumn(),
-    'non_compliant' => (int)$pdo->query("SELECT COUNT(*) FROM endpoints WHERE compliance = 'non_compliant'")->fetchColumn(),
-    'reboot_required' => (int)$pdo->query('SELECT COUNT(*) FROM endpoints WHERE reboot_required = 1')->fetchColumn(),
-];
+$clientOptions = $pdo->query("SELECT DISTINCT trmm_client FROM endpoints WHERE COALESCE(trmm_client, '') <> '' ORDER BY trmm_client")->fetchAll(PDO::FETCH_COLUMN);
+$siteOptions = $pdo->query("SELECT DISTINCT trmm_site FROM endpoints WHERE COALESCE(trmm_site, '') <> '' ORDER BY trmm_site")->fetchAll(PDO::FETCH_COLUMN);
 
-$rows = $pdo->query('SELECT e.*, COUNT(mu.id) AS missing_count
+$where = [];
+$params = [];
+if ($selectedClient !== '') {
+    $where[] = 'trmm_client = :client';
+    $params['client'] = $selectedClient;
+}
+if ($selectedSite !== '') {
+    $where[] = 'trmm_site = :site';
+    $params['site'] = $selectedSite;
+}
+$whereSql = $where === [] ? '' : (' WHERE ' . implode(' AND ', $where));
+
+$totalsStmt = $pdo->prepare("SELECT
+    COUNT(*) AS total,
+    SUM(CASE WHEN compliance = 'compliant' THEN 1 ELSE 0 END) AS compliant,
+    SUM(CASE WHEN compliance = 'non_compliant' THEN 1 ELSE 0 END) AS non_compliant,
+    SUM(CASE WHEN reboot_required = 1 THEN 1 ELSE 0 END) AS reboot_required
+    FROM endpoints{$whereSql}");
+$totalsStmt->execute($params);
+$totals = $totalsStmt->fetch() ?: ['total'=>0,'compliant'=>0,'non_compliant'=>0,'reboot_required'=>0];
+
+$rowsStmt = $pdo->prepare("SELECT e.*, COUNT(mu.id) AS missing_count
     FROM endpoints e
     LEFT JOIN missing_updates mu ON mu.endpoint_id = e.id
+    {$whereSql}
     GROUP BY e.id
-    ORDER BY e.last_reported_at DESC')->fetchAll();
+    ORDER BY e.last_reported_at DESC");
+$rowsStmt->execute($params);
+$rows = $rowsStmt->fetchAll();
 
 $selectedEndpoint = null;
 $selectedMissingUpdates = [];
 if (is_int($selectedEndpointId) && $selectedEndpointId > 0) {
-    $endpointStmt = $pdo->prepare('SELECT e.*, COUNT(mu.id) AS missing_count
+    $endpointWhereSql = $whereSql === '' ? 'WHERE e.id = :id' : ($whereSql . ' AND e.id = :id');
+    $endpointStmt = $pdo->prepare("SELECT e.*, COUNT(mu.id) AS missing_count
         FROM endpoints e
         LEFT JOIN missing_updates mu ON mu.endpoint_id = e.id
-        WHERE e.id = :id
-        GROUP BY e.id');
-    $endpointStmt->execute(['id' => $selectedEndpointId]);
+        {$endpointWhereSql}
+        GROUP BY e.id");
+    $endpointStmt->execute($params + ['id' => $selectedEndpointId]);
     $selectedEndpoint = $endpointStmt->fetch();
 
     if ($selectedEndpoint !== false) {
@@ -41,6 +64,16 @@ if (is_int($selectedEndpointId) && $selectedEndpointId > 0) {
         $selectedMissingUpdates = $updatesStmt->fetchAll();
     }
 }
+
+$drilldownPie = ['compliant' => (int)$totals['compliant'], 'non_compliant' => (int)$totals['non_compliant']];
+$totalForPie = max(1, $drilldownPie['compliant'] + $drilldownPie['non_compliant']);
+$compliantPct = (int)round(($drilldownPie['compliant'] / $totalForPie) * 100);
+$nonCompliantPct = 100 - $compliantPct;
+$pieStyle = "conic-gradient(#10b981 0% {$compliantPct}%, #ef4444 {$compliantPct}% 100%)";
+
+$queryBase = [];
+if ($selectedClient !== '') { $queryBase['client'] = $selectedClient; }
+if ($selectedSite !== '') { $queryBase['site'] = $selectedSite; }
 ?>
 <!doctype html>
 <html lang="en">
@@ -65,20 +98,55 @@ if (is_int($selectedEndpointId) && $selectedEndpointId > 0) {
     .detail-item { background: #f9fafb; border-radius: 6px; padding: 0.6rem; }
     .detail-item small { color: #6b7280; display: block; }
     .empty-state { color: #4b5563; font-style: italic; }
+    .filters { display: flex; gap: 0.75rem; align-items: end; margin-bottom: 1rem; }
+    .filters label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+    .filters select, .filters button, .filters a { padding: 0.45rem 0.6rem; }
+    .drilldown-chart { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+    .pie { width: 90px; height: 90px; border-radius: 50%; background: var(--pie-bg); border: 1px solid #d1d5db; }
   </style>
 </head>
 <body>
   <h1>Windows Update Compliance Dashboard</h1>
+
+  <form method="get" class="panel filters">
+    <label>Client
+      <select name="client">
+        <option value="">All clients</option>
+        <?php foreach ($clientOptions as $client): ?>
+          <option value="<?= htmlspecialchars((string)$client) ?>" <?= $selectedClient === (string)$client ? 'selected' : '' ?>><?= htmlspecialchars((string)$client) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <label>Site
+      <select name="site">
+        <option value="">All sites</option>
+        <?php foreach ($siteOptions as $site): ?>
+          <option value="<?= htmlspecialchars((string)$site) ?>" <?= $selectedSite === (string)$site ? 'selected' : '' ?>><?= htmlspecialchars((string)$site) ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+    <button type="submit">Apply filters</button>
+    <a href="/">Reset</a>
+  </form>
+
   <div class="cards">
-    <div class="card"><strong>Total endpoints</strong><div><?= $totals['total'] ?></div></div>
-    <div class="card"><strong>Compliant</strong><div><?= $totals['compliant'] ?></div></div>
-    <div class="card"><strong>Non-compliant</strong><div><?= $totals['non_compliant'] ?></div></div>
-    <div class="card"><strong>Reboot required</strong><div><?= $totals['reboot_required'] ?></div></div>
+    <div class="card"><strong>Total endpoints</strong><div><?= (int)$totals['total'] ?></div></div>
+    <div class="card"><strong>Compliant</strong><div><?= (int)$totals['compliant'] ?></div></div>
+    <div class="card"><strong>Non-compliant</strong><div><?= (int)$totals['non_compliant'] ?></div></div>
+    <div class="card"><strong>Reboot required</strong><div><?= (int)$totals['reboot_required'] ?></div></div>
   </div>
 
   <div class="panel" id="agent-details">
     <h2>Agent Details</h2>
     <?php if ($selectedEndpoint !== null && $selectedEndpoint !== false): ?>
+      <div class="drilldown-chart">
+        <div class="pie" style="--pie-bg: <?= htmlspecialchars($pieStyle) ?>;"></div>
+        <div>
+          <strong>Compliance split (current filter scope)</strong><br />
+          <span class="tag ok">Compliant: <?= (int)$drilldownPie['compliant'] ?> (<?= $compliantPct ?>%)</span>
+          <span class="tag bad">Non-compliant: <?= (int)$drilldownPie['non_compliant'] ?> (<?= $nonCompliantPct ?>%)</span>
+        </div>
+      </div>
       <div class="details-grid">
         <div class="detail-item"><small>Hostname</small><?= htmlspecialchars((string)$selectedEndpoint['hostname']) ?></div>
         <div class="detail-item"><small>Client</small><?= htmlspecialchars((string)($selectedEndpoint['trmm_client'] ?? '')) ?></div>
@@ -96,13 +164,7 @@ if (is_int($selectedEndpointId) && $selectedEndpointId > 0) {
         <p class="empty-state">No missing updates reported for this agent.</p>
       <?php else: ?>
         <table>
-          <thead>
-            <tr>
-              <th>KB</th>
-              <th>Title</th>
-              <th>Severity</th>
-            </tr>
-          </thead>
+          <thead><tr><th>KB</th><th>Title</th><th>Severity</th></tr></thead>
           <tbody>
             <?php foreach ($selectedMissingUpdates as $update): ?>
               <tr>
@@ -120,31 +182,16 @@ if (is_int($selectedEndpointId) && $selectedEndpointId > 0) {
   </div>
 
   <table>
-    <thead>
-      <tr>
-        <th>Hostname</th>
-        <th>Client</th>
-        <th>Site</th>
-        <th>OS Version</th>
-        <th>Compliance</th>
-        <th>Missing Updates</th>
-        <th>Reboot</th>
-        <th>Last Scan</th>
-        <th>Last Report</th>
-      </tr>
-    </thead>
+    <thead><tr><th>Hostname</th><th>Client</th><th>Site</th><th>OS Version</th><th>Compliance</th><th>Missing Updates</th><th>Reboot</th><th>Last Scan</th><th>Last Report</th></tr></thead>
     <tbody>
       <?php foreach ($rows as $row): ?>
+      <?php $endpointUrl = '?' . http_build_query($queryBase + ['endpoint' => (int)$row['id']]) . '#agent-details'; ?>
       <tr class="<?= $selectedEndpointId === (int)$row['id'] ? 'selected-row' : '' ?>">
-        <td><a class="host-link" href="?endpoint=<?= (int)$row['id'] ?>#agent-details"><?= htmlspecialchars($row['hostname']) ?></a></td>
+        <td><a class="host-link" href="<?= htmlspecialchars($endpointUrl) ?>"><?= htmlspecialchars($row['hostname']) ?></a></td>
         <td><?= htmlspecialchars((string)($row['trmm_client'] ?? '')) ?></td>
         <td><?= htmlspecialchars((string)($row['trmm_site'] ?? '')) ?></td>
         <td><?= htmlspecialchars((string)$row['os_version']) ?></td>
-        <td>
-          <span class="tag <?= $row['compliance'] === 'compliant' ? 'ok' : 'bad' ?>">
-            <?= htmlspecialchars($row['compliance']) ?>
-          </span>
-        </td>
+        <td><span class="tag <?= $row['compliance'] === 'compliant' ? 'ok' : 'bad' ?>"><?= htmlspecialchars($row['compliance']) ?></span></td>
         <td><?= (int)$row['missing_count'] ?></td>
         <td><?= (int)$row['reboot_required'] === 1 ? 'Required' : 'No' ?></td>
         <td><?= htmlspecialchars((string)$row['last_scan_time']) ?></td>
