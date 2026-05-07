@@ -21,6 +21,27 @@ A PHP-based dashboard + JSON API for collecting Windows Update compliance status
    ```
 4. Open dashboard: `http://localhost:8080`
 
+## Debian install (blank VM)
+Run the installer as root (or with sudo) from the repository checkout:
+
+```bash
+chmod +x scripts/install_debian.sh
+sudo ./scripts/install_debian.sh
+```
+
+What it does:
+- Installs PHP + SQLite runtime packages
+- Creates a dedicated `wureport` system user
+- Copies the app to `/opt/wureport`
+- Initializes the SQLite database
+- Creates and starts `wureport.service` (systemd)
+
+Optional environment overrides:
+- `APP_DIR` (default: `/opt/wureport`)
+- `APP_USER` (default: `wureport`)
+- `APP_GROUP` (default: `wureport`)
+- `APP_PORT` (default: `8080`)
+
 ## API
 ### `POST /api/report.php`
 Headers:
