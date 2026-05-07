@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/db.php';
 
 $pdo = db();
+ensure_endpoints_trmm_columns($pdo);
 $totals = [
     'total' => (int)$pdo->query('SELECT COUNT(*) FROM endpoints')->fetchColumn(),
     'compliant' => (int)$pdo->query("SELECT COUNT(*) FROM endpoints WHERE compliance = 'compliant'")->fetchColumn(),
@@ -48,6 +49,8 @@ $rows = $pdo->query('SELECT e.*, COUNT(mu.id) AS missing_count
     <thead>
       <tr>
         <th>Hostname</th>
+        <th>Client</th>
+        <th>Site</th>
         <th>OS Version</th>
         <th>Compliance</th>
         <th>Missing Updates</th>
@@ -60,6 +63,8 @@ $rows = $pdo->query('SELECT e.*, COUNT(mu.id) AS missing_count
       <?php foreach ($rows as $row): ?>
       <tr>
         <td><?= htmlspecialchars($row['hostname']) ?></td>
+        <td><?= htmlspecialchars((string)($row['trmm_client'] ?? '')) ?></td>
+        <td><?= htmlspecialchars((string)($row['trmm_site'] ?? '')) ?></td>
         <td><?= htmlspecialchars((string)$row['os_version']) ?></td>
         <td>
           <span class="tag <?= $row['compliance'] === 'compliant' ? 'ok' : 'bad' ?>">
