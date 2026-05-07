@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/db.php';
 
 $pdo = db();
+ensure_endpoints_trmm_columns($pdo);
 
 $pdo->exec('CREATE TABLE IF NOT EXISTS api_clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,12 +18,23 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS api_clients (
 $pdo->exec('CREATE TABLE IF NOT EXISTS endpoints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     hostname TEXT NOT NULL UNIQUE,
+    trmm_client TEXT,
+    trmm_site TEXT,
     os_version TEXT,
     last_scan_time TEXT,
     reboot_required INTEGER NOT NULL DEFAULT 0,
     compliance TEXT NOT NULL,
     last_reported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )');
+
+$columns = $pdo->query("PRAGMA table_info(endpoints)")->fetchAll();
+$existing = array_column($columns, 'name');
+if (!in_array('trmm_client', $existing, true)) {
+    $pdo->exec('ALTER TABLE endpoints ADD COLUMN trmm_client TEXT');
+}
+if (!in_array('trmm_site', $existing, true)) {
+    $pdo->exec('ALTER TABLE endpoints ADD COLUMN trmm_site TEXT');
+}
 
 $pdo->exec('CREATE TABLE IF NOT EXISTS missing_updates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

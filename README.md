@@ -31,6 +31,8 @@ Payload example:
 ```json
 {
   "hostname": "PC-001",
+  "trmm_client": "Acme Corp",
+  "trmm_site": "HQ",
   "os_version": "Windows 11 Pro 23H2",
   "last_scan_time": "2026-05-07T20:01:00Z",
   "reboot_required": false,
@@ -45,6 +47,17 @@ Payload example:
 Response:
 ```json
 {"status":"ok","message":"Report stored"}
+```
+
+## Tactical RMM integration
+The provided `scripts/report_status.ps1` now includes Tactical RMM client/site context.
+
+- It will automatically use `TRMM_CLIENT_NAME` and `TRMM_SITE_NAME` environment variables when available.
+- You can also pass explicit values with `-Client` and `-Site`.
+
+Example:
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\report_status.ps1 -ApiUrl "http://your-server:8080/api/report.php" -ApiKey "your-key"
 ```
 
 ## Demo API key

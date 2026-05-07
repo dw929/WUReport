@@ -24,6 +24,8 @@ if (!is_array($data)) {
 }
 
 $hostname = trim((string)($data['hostname'] ?? ''));
+$trmmClient = trim((string)($data['trmm_client'] ?? ''));
+$trmmSite = trim((string)($data['trmm_site'] ?? ''));
 $compliance = trim((string)($data['compliance'] ?? 'unknown'));
 $osVersion = (string)($data['os_version'] ?? '');
 $lastScanTime = (string)($data['last_scan_time'] ?? '');
@@ -37,12 +39,15 @@ if ($hostname === '') {
 }
 
 $pdo = db();
+ensure_endpoints_trmm_columns($pdo);
 $pdo->beginTransaction();
 
 try {
-    $upsert = $pdo->prepare('INSERT INTO endpoints (hostname, os_version, last_scan_time, reboot_required, compliance, last_reported_at)
-        VALUES (:hostname, :os_version, :last_scan_time, :reboot_required, :compliance, CURRENT_TIMESTAMP)
+    $upsert = $pdo->prepare('INSERT INTO endpoints (hostname, trmm_client, trmm_site, os_version, last_scan_time, reboot_required, compliance, last_reported_at)
+        VALUES (:hostname, :trmm_client, :trmm_site, :os_version, :last_scan_time, :reboot_required, :compliance, CURRENT_TIMESTAMP)
         ON CONFLICT(hostname) DO UPDATE SET
+            trmm_client = excluded.trmm_client,
+            trmm_site = excluded.trmm_site,
             os_version = excluded.os_version,
             last_scan_time = excluded.last_scan_time,
             reboot_required = excluded.reboot_required,
@@ -51,6 +56,8 @@ try {
 
     $upsert->execute([
         'hostname' => $hostname,
+        'trmm_client' => $trmmClient,
+        'trmm_site' => $trmmSite,
         'os_version' => $osVersion,
         'last_scan_time' => $lastScanTime,
         'reboot_required' => $rebootRequired,
